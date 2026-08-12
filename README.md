@@ -1,5 +1,7 @@
 # SDLPal for M5Stack Tab5
 
+[简体中文](README.zh-CN.md)
+
 ESP-IDF port of [SDLPal](https://github.com/sdlpal/sdlpal) for the ESP32-P4
 based M5Stack Tab5. The current firmware runs the Windows 95 edition of PAL in
 landscape orientation with touch controls, SD-card saves, sound effects and
