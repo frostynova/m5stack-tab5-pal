@@ -1,0 +1,3 @@
+dependencies:
+  georgik/sdl: "==3.3.7~3"
+  idf: ">=6.0"

@@ -1,0 +1,11 @@
+menu "ESP-BSP SDL Configuration"
+
+    config SDL_BSP_M5STACK_TAB5
+        bool "M5Stack Tab5"
+        default y
+
+    config SDL_BSP_TOUCH_ENABLE
+        bool "Enable Tab5 touch support"
+        default y
+
+endmenu
