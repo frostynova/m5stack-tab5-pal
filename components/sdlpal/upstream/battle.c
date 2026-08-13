@@ -628,15 +628,24 @@ PAL_BattleFadeScene(
    DWORD             time;
    BYTE              a, b;
    const int         rgIndex[6] = {0, 3, 1, 5, 2, 4};
+#if PAL_TAB5
+   int               iFadeStep = 0;
+#endif
    
+#if PAL_TAB5
+   time = SDL_GetTicks() + BATTLE_FRAME_TIME;
+#else
    time = SDL_GetTicks();
+#endif
 
    for (i = 0; i < 12; i++)
    {
       for (j = 0; j < 6; j++)
       {
+#if !PAL_TAB5
          PAL_DelayUntil(time);
          time = SDL_GetTicks() + 16;
+#endif
 
          //
          // Blend the pixels in the 2 buffers, and put the result into the
@@ -661,6 +670,21 @@ PAL_BattleFadeScene(
 
             ((LPBYTE)(gpScreenBak->pixels))[k] = ((a & 0xF0) | (b & 0x0F));
          }
+
+#if PAL_TAB5
+         //
+         // A full Tab5 presentation takes nearly one battle frame. Keep all
+         // blend steps, but only present every third one to avoid stretching
+         // this roughly one-second fade to more than three seconds.
+         //
+         if (++iFadeStep % 3 != 0)
+         {
+            continue;
+         }
+
+         PAL_DelayUntil(time);
+         time += BATTLE_FRAME_TIME;
+#endif
 
          //
          // Draw the backup buffer to the screen
