@@ -36,6 +36,8 @@
 - A translucent D-pad supports held movement and sliding between directions.
 - A/B/X/Y/AUTO map to SDLPal's existing logical input actions without changing
   game rules.
+- The physical side margins contain battery status and 10% volume controls,
+  with independent raw-panel touch hit testing outside the PAL image.
 
 ### Audio and runtime memory
 
@@ -47,6 +49,17 @@
   status and ending paths that place two 64 KiB decode buffers on the stack.
 - The tested firmware loads an existing save and runs without the previous
   early-game watchdog/reset failure.
+
+### Battery and charging
+
+- The onboard INA226 at `0x41` reports battery voltage and signed shunt current
+  through the board's 5 milliohm measurement path.
+- The user-facing sign convention is positive for charging and negative for
+  discharging; the displayed percentage is explicitly a voltage-curve estimate.
+- The second power expander preserves unrelated outputs while enabling QC
+  negotiation and then `CHG_EN`, matching M5Stack's reference sequence.
+- On the tested low battery, charging settled at approximately +0.31 A and the
+  measured voltage increased after charger initialization.
 
 ## Reproducibility boundary
 
@@ -73,6 +86,6 @@ Run at least a 30-minute play session containing:
 5. save, reboot and load of the new save;
 6. serial-log review for panic, watchdog, SD short read or audio write errors.
 
-Optional work after that baseline passes includes runtime volume/brightness
-controls and a way to hide the touch overlay. These are polish items, not
-requirements for the first playable release.
+Optional work after that baseline passes includes runtime brightness control
+and a way to hide the touch overlay. These are polish items, not requirements
+for the first playable release.

@@ -8,6 +8,8 @@ esp_err_t tab5_sdl_backlight_off(void);
 esp_err_t tab5_sdl_display_on_off(bool enable);
 esp_err_t tab5_sdl_touch_init(void);
 esp_err_t tab5_sdl_touch_read(esp_bsp_sdl_touch_info_t *touch_info);
+void tab5_sdl_set_pal_margin_draw_cb(esp_bsp_sdl_pal_margin_draw_cb_t callback,
+                                     void *user_data);
 esp_err_t tab5_sdl_present_pal_frame(const void *argb8888_pixels);
 esp_err_t tab5_sdl_deinit(void);
 
@@ -41,6 +43,12 @@ esp_err_t esp_bsp_sdl_touch_init(void)
 esp_err_t esp_bsp_sdl_touch_read(esp_bsp_sdl_touch_info_t *touch_info)
 {
     return tab5_sdl_touch_read(touch_info);
+}
+
+void esp_bsp_sdl_set_pal_margin_draw_cb(esp_bsp_sdl_pal_margin_draw_cb_t callback,
+                                        void *user_data)
+{
+    tab5_sdl_set_pal_margin_draw_cb(callback, user_data);
 }
 
 esp_err_t esp_bsp_sdl_present_pal_frame(const void *argb8888_pixels)

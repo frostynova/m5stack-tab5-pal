@@ -44,6 +44,7 @@ set(SDL_PAL_SOURCES
     "port/audio_tab5.c"
     "port/pal_utils.c"
     "port/tab5_sdl_touch_bridge.c"
+    "port/tab5_power.c"
     "port/tab5_touch.c"
 )
 

@@ -102,6 +102,18 @@ AUDIO_DecreaseVolume(
    VOID
 );
 
+#if PAL_TAB5
+VOID
+AUDIO_Tab5AdjustVolume(
+   INT delta
+);
+
+INT
+AUDIO_Tab5GetVolume(
+   VOID
+);
+#endif
+
 VOID
 AUDIO_PlayMusic(
    INT       iNumRIX,

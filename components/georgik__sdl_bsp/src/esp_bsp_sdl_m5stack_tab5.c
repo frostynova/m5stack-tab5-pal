@@ -37,6 +37,8 @@ static ppa_client_handle_t pal_ppa;
 static uint16_t *pal_output;
 static SemaphoreHandle_t pal_lcd_done;
 static bool pal_present_ready;
+static esp_bsp_sdl_pal_margin_draw_cb_t pal_margin_draw_cb;
+static void *pal_margin_draw_user_data;
 #if CONFIG_SDL_BSP_TOUCH_ENABLE
 static esp_lcd_touch_handle_t touch;
 #endif
@@ -291,6 +293,13 @@ esp_err_t tab5_sdl_touch_read(esp_bsp_sdl_touch_info_t *touch_info)
 #endif
 }
 
+void tab5_sdl_set_pal_margin_draw_cb(esp_bsp_sdl_pal_margin_draw_cb_t callback,
+                                     void *user_data)
+{
+    pal_margin_draw_cb = callback;
+    pal_margin_draw_user_data = user_data;
+}
+
 esp_err_t tab5_sdl_present_pal_frame(const void *argb8888_pixels)
 {
     if (argb8888_pixels == NULL) {
@@ -326,6 +335,25 @@ esp_err_t tab5_sdl_present_pal_frame(const void *argb8888_pixels)
     error = ppa_do_scale_rotate_mirror(pal_ppa, &operation);
     if (error != ESP_OK) {
         return error;
+    }
+
+    if (pal_margin_draw_cb != NULL) {
+        pal_margin_draw_cb(pal_output, BSP_LCD_H_RES, BSP_LCD_V_RES,
+                           pal_margin_draw_user_data);
+
+        const size_t margin_size =
+            (size_t)PAL_OUTPUT_Y * BSP_LCD_H_RES * sizeof(*pal_output);
+        error = esp_cache_msync(pal_output, margin_size,
+                                ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+        if (error != ESP_OK) {
+            return error;
+        }
+        error = esp_cache_msync(
+            pal_output + (size_t)(PAL_OUTPUT_Y + PAL_OUTPUT_HEIGHT) * BSP_LCD_H_RES,
+            margin_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+        if (error != ESP_OK) {
+            return error;
+        }
     }
 
     error = esp_lcd_panel_draw_bitmap(panel, 0, 0,

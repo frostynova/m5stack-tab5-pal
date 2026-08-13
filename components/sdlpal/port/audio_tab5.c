@@ -281,6 +281,13 @@ static void change_volume(int delta)
 VOID AUDIO_IncreaseVolume(VOID) { change_volume(3); }
 VOID AUDIO_DecreaseVolume(VOID) { change_volume(-3); }
 
+VOID AUDIO_Tab5AdjustVolume(INT delta) { change_volume(delta); }
+
+INT AUDIO_Tab5GetVolume(VOID)
+{
+    return (gConfig.iMusicVolume + gConfig.iSoundVolume + 1) / 2;
+}
+
 VOID AUDIO_PlayMusic(INT music, BOOL loop, FLOAT fade_time)
 {
     AUDIO_Lock();

@@ -1,9 +1,13 @@
 #include "main.h"
 #include "tab5_touch.h"
+#include "tab5_power.h"
 
 #include <stdint.h>
+#include <stdio.h>
 #include <string.h>
 
+#include "audio.h"
+#include "esp_bsp_sdl.h"
 #include "esp_heap_caps.h"
 
 #define PAL_WIDTH  320
@@ -17,6 +21,17 @@
 #define PAL_BLOCK_WIDTH   712.0f
 #define PAL_BLOCK_HEIGHT  1140.0f
 
+/* The centered PAL image leaves 70 physical pixels on both landscape sides. */
+#define PHYSICAL_WIDTH       1280
+#define PHYSICAL_HEIGHT      720
+#define PHYSICAL_MARGIN      70
+#define BATTERY_TOUCH_TOP    220
+#define BATTERY_TOUCH_BOTTOM 440
+#define VOLUME_UP_TOP        220
+#define VOLUME_UP_BOTTOM     340
+#define VOLUME_DOWN_TOP      360
+#define VOLUME_DOWN_BOTTOM   480
+
 typedef enum
 {
    kTab5TouchNone = 0,
@@ -29,12 +44,63 @@ typedef enum
    kTab5TouchX,
    kTab5TouchY,
    kTab5TouchAuto,
+   kTab5TouchBattery,
+   kTab5TouchVolumeUp,
+   kTab5TouchVolumeDown,
 } TAB5TOUCHAREA;
 
 static TAB5TOUCHAREA g_CurrentArea = kTab5TouchNone;
 static SDL_FingerID g_CurrentFinger = 0;
 static BOOL g_FingerDown = FALSE;
 static uint32_t *g_OverlayFrame = NULL;
+static uint32_t g_BatteryDetailsUntil = 0;
+
+static VOID PAL_Tab5DrawMargins(uint16_t *framebuffer, int panel_width,
+                                int panel_height, void *user_data);
+
+static VOID
+PAL_Tab5TouchToPhysical(
+   float panel_normalized_x,
+   float panel_normalized_y,
+   float *physical_x,
+   float *physical_y
+)
+{
+   const float panel_x = panel_normalized_x * (PANEL_WIDTH - 1.0f);
+   const float panel_y = panel_normalized_y * (PANEL_HEIGHT - 1.0f);
+
+   *physical_x = (PANEL_HEIGHT - 1.0f) - panel_y;
+   *physical_y = panel_x;
+}
+
+static TAB5TOUCHAREA
+PAL_Tab5TouchHitSystem(
+   float panel_normalized_x,
+   float panel_normalized_y
+)
+{
+   float x;
+   float y;
+   PAL_Tab5TouchToPhysical(panel_normalized_x, panel_normalized_y, &x, &y);
+
+   if (x < PHYSICAL_MARGIN && y >= BATTERY_TOUCH_TOP &&
+       y <= BATTERY_TOUCH_BOTTOM)
+   {
+      return kTab5TouchBattery;
+   }
+   if (x >= PHYSICAL_WIDTH - PHYSICAL_MARGIN)
+   {
+      if (y >= VOLUME_UP_TOP && y <= VOLUME_UP_BOTTOM)
+      {
+         return kTab5TouchVolumeUp;
+      }
+      if (y >= VOLUME_DOWN_TOP && y <= VOLUME_DOWN_BOTTOM)
+      {
+         return kTab5TouchVolumeDown;
+      }
+   }
+   return kTab5TouchNone;
+}
 
 static BOOL
 PAL_Tab5TouchToGame(
@@ -195,6 +261,15 @@ PAL_Tab5TouchPressArea(
    case kTab5TouchAuto:
       state->dwKeyPress |= kKeyAuto;
       break;
+   case kTab5TouchBattery:
+      g_BatteryDetailsUntil = SDL_GetTicks() + 5000;
+      break;
+   case kTab5TouchVolumeUp:
+      AUDIO_Tab5AdjustVolume(10);
+      break;
+   case kTab5TouchVolumeDown:
+      AUDIO_Tab5AdjustVolume(-10);
+      break;
    default:
       break;
    }
@@ -230,8 +305,13 @@ PAL_Tab5TouchEventFilter(
       return 1;
    }
 
-   if (!PAL_Tab5TouchToGame(event->tfinger.x, event->tfinger.y,
-                            &game_x, &game_y))
+   area = PAL_Tab5TouchHitSystem(event->tfinger.x, event->tfinger.y);
+   if (area != kTab5TouchNone)
+   {
+      /* Margin controls use physical panel coordinates and never feed PAL. */
+   }
+   else if (!PAL_Tab5TouchToGame(event->tfinger.x, event->tfinger.y,
+                                 &game_x, &game_y))
    {
       area = kTab5TouchNone;
    }
@@ -266,6 +346,8 @@ PAL_Tab5TouchRegister(
    VOID
 )
 {
+   PAL_Tab5PowerInit();
+   esp_bsp_sdl_set_pal_margin_draw_cb(PAL_Tab5DrawMargins, NULL);
    PAL_RegisterInputFilter(NULL, PAL_Tab5TouchEventFilter, NULL);
 }
 
@@ -542,6 +624,294 @@ PAL_Tab5TouchDrawOverlay(
                           auto_pressed ? 255 : 145); /* T */
    PAL_Tab5TouchDrawGlyph(297, 101, 6, 0x00eaf2f6u,
                           auto_pressed ? 255 : 145); /* O */
+}
+
+static VOID
+PAL_Tab5PhysicalPixel(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height,
+   int x,
+   int y,
+   uint16_t color
+)
+{
+   if (x >= 0 && x < panel_height && y >= 0 && y < panel_width)
+   {
+      /* The panel buffer is portrait; the glass is mounted 90 degrees. */
+      framebuffer[(panel_height - 1 - x) * panel_width + y] = color;
+   }
+}
+
+static VOID
+PAL_Tab5PhysicalFillRect(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height,
+   int x,
+   int y,
+   int width,
+   int height,
+   uint16_t color
+)
+{
+   for (int row = y; row < y + height; ++row)
+   {
+      for (int column = x; column < x + width; ++column)
+      {
+         PAL_Tab5PhysicalPixel(framebuffer, panel_width, panel_height,
+                               column, row, color);
+      }
+   }
+}
+
+static const uint8_t *
+PAL_Tab5PhysicalGlyph(
+   char character
+)
+{
+   static const uint8_t digits[][5] = {
+      { 0x3e, 0x51, 0x49, 0x45, 0x3e },
+      { 0x00, 0x42, 0x7f, 0x40, 0x00 },
+      { 0x62, 0x51, 0x49, 0x49, 0x46 },
+      { 0x22, 0x41, 0x49, 0x49, 0x36 },
+      { 0x18, 0x14, 0x12, 0x7f, 0x10 },
+      { 0x2f, 0x49, 0x49, 0x49, 0x31 },
+      { 0x3e, 0x49, 0x49, 0x49, 0x32 },
+      { 0x01, 0x71, 0x09, 0x05, 0x03 },
+      { 0x36, 0x49, 0x49, 0x49, 0x36 },
+      { 0x26, 0x49, 0x49, 0x49, 0x3e },
+   };
+   static const uint8_t percent[] = { 0x23, 0x13, 0x08, 0x64, 0x62 };
+   static const uint8_t letter_v[] = { 0x0f, 0x30, 0x40, 0x30, 0x0f };
+   static const uint8_t letter_a[] = { 0x7e, 0x11, 0x11, 0x11, 0x7e };
+   static const uint8_t plus[] = { 0x08, 0x08, 0x3e, 0x08, 0x08 };
+   static const uint8_t minus[] = { 0x08, 0x08, 0x08, 0x08, 0x08 };
+   static const uint8_t dot[] = { 0x00, 0x60, 0x60, 0x00, 0x00 };
+   static const uint8_t unknown[] = { 0x02, 0x01, 0x59, 0x05, 0x02 };
+
+   if (character >= '0' && character <= '9') return digits[character - '0'];
+   if (character == '%') return percent;
+   if (character == 'V') return letter_v;
+   if (character == 'A') return letter_a;
+   if (character == '+') return plus;
+   if (character == '-') return minus;
+   if (character == '.') return dot;
+   return unknown;
+}
+
+static VOID
+PAL_Tab5PhysicalDrawText(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height,
+   int x,
+   int y,
+   const char *text,
+   int scale,
+   uint16_t color
+)
+{
+   while (*text != '\0')
+   {
+      const uint8_t *glyph = PAL_Tab5PhysicalGlyph(*text++);
+      for (int column = 0; column < 5; ++column)
+      {
+         for (int row = 0; row < 7; ++row)
+         {
+            if ((glyph[column] & (1 << row)) != 0)
+            {
+               PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                                        x + column * scale, y + row * scale,
+                                        scale, scale, color);
+            }
+         }
+      }
+      x += 6 * scale;
+   }
+}
+
+static VOID
+PAL_Tab5PhysicalDrawCenteredText(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height,
+   int center_x,
+   int y,
+   const char *text,
+   int scale,
+   uint16_t color
+)
+{
+   const int width = ((int)strlen(text) * 6 - 1) * scale;
+   PAL_Tab5PhysicalDrawText(framebuffer, panel_width, panel_height,
+                            center_x - width / 2, y, text, scale, color);
+}
+
+static VOID
+PAL_Tab5PhysicalDrawOutline(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height,
+   int x,
+   int y,
+   int width,
+   int height,
+   int thickness,
+   uint16_t color
+)
+{
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            x, y, width, thickness, color);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            x, y + height - thickness, width, thickness, color);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            x, y, thickness, height, color);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            x + width - thickness, y, thickness, height, color);
+}
+
+static VOID
+PAL_Tab5PhysicalDrawBattery(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height,
+   TAB5POWERSTATUS status
+)
+{
+   const uint16_t white = 0xffff;
+   const uint16_t gray = 0x7bef;
+   const uint16_t green = 0x07e0;
+   const uint16_t yellow = 0xffe0;
+   uint16_t state_color = gray;
+
+   if (status.state == kTab5PowerCharging) state_color = green;
+   else if (status.state == kTab5PowerDischarging) state_color = yellow;
+
+   PAL_Tab5PhysicalDrawOutline(framebuffer, panel_width, panel_height,
+                               13, 260, 43, 22, 2,
+                               status.valid ? white : gray);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            56, 267, 5, 8,
+                            status.valid ? white : gray);
+   if (status.valid && status.percent > 0)
+   {
+      const int fill_width = status.percent * 37 / 100;
+      PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                               16, 263, fill_width, 16, state_color);
+   }
+
+   char text[16];
+   if (status.valid)
+   {
+      snprintf(text, sizeof(text), "%d%%", status.percent);
+   }
+   else
+   {
+      strcpy(text, "?%");
+   }
+   PAL_Tab5PhysicalDrawCenteredText(framebuffer, panel_width, panel_height,
+                                    35, 291, text, 2, white);
+
+   if (status.state == kTab5PowerCharging)
+   {
+      /* Compact lightning bolt. */
+      PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                               34, 320, 7, 9, green);
+      PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                               29, 327, 8, 5, green);
+      PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                               32, 330, 7, 9, green);
+   }
+   else if (status.state == kTab5PowerDischarging)
+   {
+      PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                               33, 319, 4, 14, yellow);
+      for (int step = 0; step < 6; ++step)
+      {
+         PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                                  29 + step, 331 + step, 12 - step * 2, 1,
+                                  yellow);
+      }
+   }
+   else
+   {
+      PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                               29, 327, 12, 2, gray);
+   }
+
+   if (status.valid && SDL_TICKS_PASSED(g_BatteryDetailsUntil, SDL_GetTicks()) == SDL_FALSE)
+   {
+      snprintf(text, sizeof(text), "%.1fV", status.voltage);
+      PAL_Tab5PhysicalDrawCenteredText(framebuffer, panel_width, panel_height,
+                                       35, 354, text, 2, white);
+      snprintf(text, sizeof(text), "%+.1fA", status.current);
+      PAL_Tab5PhysicalDrawCenteredText(framebuffer, panel_width, panel_height,
+                                       35, 378, text, 2, state_color);
+   }
+}
+
+static VOID
+PAL_Tab5PhysicalDrawVolume(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height
+)
+{
+   const BOOL up_pressed = g_FingerDown && g_CurrentArea == kTab5TouchVolumeUp;
+   const BOOL down_pressed = g_FingerDown && g_CurrentArea == kTab5TouchVolumeDown;
+   const uint16_t white = 0xffff;
+   const uint16_t gray = 0x7bef;
+   const uint16_t pressed = 0x07ff;
+   char text[8];
+
+   PAL_Tab5PhysicalDrawOutline(framebuffer, panel_width, panel_height,
+                               1216, 230, 56, 100, 2,
+                               up_pressed ? pressed : gray);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            1231, 278, 26, 4,
+                            up_pressed ? pressed : white);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            1242, 267, 4, 26,
+                            up_pressed ? pressed : white);
+
+   snprintf(text, sizeof(text), "%d", AUDIO_Tab5GetVolume());
+   PAL_Tab5PhysicalDrawCenteredText(framebuffer, panel_width, panel_height,
+                                    1244, 343, text, 2, white);
+
+   PAL_Tab5PhysicalDrawOutline(framebuffer, panel_width, panel_height,
+                               1216, 370, 56, 100, 2,
+                               down_pressed ? pressed : gray);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            1231, 418, 26, 4,
+                            down_pressed ? pressed : white);
+}
+
+static VOID
+PAL_Tab5DrawMargins(
+   uint16_t *framebuffer,
+   int panel_width,
+   int panel_height,
+   void *user_data
+)
+{
+   (void)user_data;
+   if (framebuffer == NULL || panel_width != PANEL_WIDTH ||
+       panel_height != PANEL_HEIGHT)
+   {
+      return;
+   }
+
+   PAL_Tab5PowerUpdate();
+
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            0, 0, PHYSICAL_MARGIN, PHYSICAL_HEIGHT, 0x0000);
+   PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
+                            PHYSICAL_WIDTH - PHYSICAL_MARGIN, 0,
+                            PHYSICAL_MARGIN, PHYSICAL_HEIGHT, 0x0000);
+   PAL_Tab5PhysicalDrawBattery(framebuffer, panel_width, panel_height,
+                               PAL_Tab5PowerGetStatus());
+   PAL_Tab5PhysicalDrawVolume(framebuffer, panel_width, panel_height);
 }
 
 const void *

@@ -19,6 +19,9 @@ the Windows 95 game that you own.
 - save and load support in the same SD-card directory
 - ES8388 mono output at 44.1 kHz
 - Windows sound effects and RIX music through the DOSBox integer OPL core
+- battery voltage, estimated charge level and signed current in the left margin
+- touch volume controls in the right margin
+- IP2326 charging and QC negotiation enabled through the Tab5 power expander
 - SDL thread stack allocated in PSRAM; audio kept on core 1
 
 ## Toolchain
@@ -76,9 +79,16 @@ diagnostic screen instead of launching the game.
 | X | Use item outside battle; repeat the previous command in battle |
 | Y | Force/defend action supported by SDLPal |
 | AUTO | Toggle automatic battle |
+| Left black margin | Battery estimate; tap for voltage and signed current |
+| Right black margin `+` / `-` | Raise or lower music and sound volume by 10% |
 
 The D-pad has enlarged touch targets and supports sliding directly from one
 direction to another while the finger remains down.
+
+Battery data comes from the onboard INA226 and refreshes once per second. A
+positive current means the battery is charging; a negative current means it is
+discharging. The percentage is a voltage-curve estimate rather than a fuel
+gauge reading, so it can move under load and while charging.
 
 ## Build and flash
 
@@ -116,6 +126,11 @@ Board-specific reliability policy lives in project code:
   untouched black margins in PSRAM before LCD DMA reads them.
 - a project touch bridge normalizes Tab5 coordinates and supplies valid SDL3
   finger events, working around the pinned SDL component's ESP-IDF backend.
+- the port initializes the second Tab5 power expander using the official charge
+  sequence, enabling QC negotiation before asserting `CHG_EN`; all unrelated
+  output bits are preserved.
+- an onboard INA226 reader uses the official 5 milliohm shunt configuration;
+  side-margin widgets never cover the 320x200 game image.
 
 ## Repository layout
 
