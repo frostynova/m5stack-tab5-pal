@@ -1210,6 +1210,50 @@ void Chip::GenerateBlock3( Bitu total, Bit32s* output  ) {
 	}
 }
 
+void Chip::Reset() {
+	noiseCounter = 0;
+	noiseValue = 1;	//Make sure it triggers the noise xor the first time
+	lfoCounter = 0;
+	vibratoIndex = 0;
+	tremoloIndex = 0;
+
+	//Setup the channels with the correct four op flags
+	//Channels are accessed through a table so they appear linear here
+	chan[ 0].fourMask = 0x00 | ( 1 << 0 );
+	chan[ 1].fourMask = 0x80 | ( 1 << 0 );
+	chan[ 2].fourMask = 0x00 | ( 1 << 1 );
+	chan[ 3].fourMask = 0x80 | ( 1 << 1 );
+	chan[ 4].fourMask = 0x00 | ( 1 << 2 );
+	chan[ 5].fourMask = 0x80 | ( 1 << 2 );
+
+	chan[ 9].fourMask = 0x00 | ( 1 << 3 );
+	chan[10].fourMask = 0x80 | ( 1 << 3 );
+	chan[11].fourMask = 0x00 | ( 1 << 4 );
+	chan[12].fourMask = 0x80 | ( 1 << 4 );
+	chan[13].fourMask = 0x00 | ( 1 << 5 );
+	chan[14].fourMask = 0x80 | ( 1 << 5 );
+
+	//mark the percussion channels
+	chan[ 6].fourMask = 0x40;
+	chan[ 7].fourMask = 0x40;
+	chan[ 8].fourMask = 0x40;
+
+	//Clear Everything in opl3 mode
+	WriteReg( 0x105, 0x1 );
+	for ( int i = 0; i < 512; i++ ) {
+		if ( i == 0x105 )
+			continue;
+		WriteReg( i, 0xff );
+		WriteReg( i, 0x0 );
+	}
+	WriteReg( 0x105, 0x0 );
+	//Clear everything in opl2 mode
+	for ( int i = 0; i < 255; i++ ) {
+		WriteReg( i, 0xff );
+		WriteReg( i, 0x0 );
+	}
+}
+
 void Chip::Setup( Bit32u rate ) {
 	double original = OPLRATE;
 //	double original = rate;
@@ -1217,14 +1261,9 @@ void Chip::Setup( Bit32u rate ) {
 
 	//Noise counter is run at the same precision as general waves
 	noiseAdd = (Bit32u)( 0.5 + scale * ( 1 << LFO_SH ) );
-	noiseCounter = 0;
-	noiseValue = 1;	//Make sure it triggers the noise xor the first time
 	//The low frequency oscillation counter
 	//Every time his overflows vibrato and tremoloindex are increased
 	lfoAdd = (Bit32u)( 0.5 + scale * ( 1 << LFO_SH ) );
-	lfoCounter = 0;
-	vibratoIndex = 0;
-	tremoloIndex = 0;
 
 	//With higher octave this gets shifted up
 	//-1 since the freqCreateTable = *2
@@ -1298,41 +1337,7 @@ void Chip::Setup( Bit32u rate ) {
 		//This should provide instant volume maximizing
 		attackRates[i] = 8 << RATE_SH;
 	}
-	//Setup the channels with the correct four op flags
-	//Channels are accessed through a table so they appear linear here
-	chan[ 0].fourMask = 0x00 | ( 1 << 0 );
-	chan[ 1].fourMask = 0x80 | ( 1 << 0 );
-	chan[ 2].fourMask = 0x00 | ( 1 << 1 );
-	chan[ 3].fourMask = 0x80 | ( 1 << 1 );
-	chan[ 4].fourMask = 0x00 | ( 1 << 2 );
-	chan[ 5].fourMask = 0x80 | ( 1 << 2 );
-
-	chan[ 9].fourMask = 0x00 | ( 1 << 3 );
-	chan[10].fourMask = 0x80 | ( 1 << 3 );
-	chan[11].fourMask = 0x00 | ( 1 << 4 );
-	chan[12].fourMask = 0x80 | ( 1 << 4 );
-	chan[13].fourMask = 0x00 | ( 1 << 5 );
-	chan[14].fourMask = 0x80 | ( 1 << 5 );
-
-	//mark the percussion channels
-	chan[ 6].fourMask = 0x40;
-	chan[ 7].fourMask = 0x40;
-	chan[ 8].fourMask = 0x40;
-
-	//Clear Everything in opl3 mode
-	WriteReg( 0x105, 0x1 );
-	for ( int i = 0; i < 512; i++ ) {
-		if ( i == 0x105 )
-			continue;
-		WriteReg( i, 0xff );
-		WriteReg( i, 0x0 );
-	}
-	WriteReg( 0x105, 0x0 );
-	//Clear everything in opl2 mode
-	for ( int i = 0; i < 255; i++ ) {
-		WriteReg( i, 0xff );
-		WriteReg( i, 0x0 );
-	}
+	Reset();
 }
 
 bool InitTables( void ) {
@@ -1516,4 +1521,3 @@ void Handler::Init( Bitu rate ) {
 */
 
 //};		//Namespace DBOPL
-

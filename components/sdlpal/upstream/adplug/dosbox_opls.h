@@ -90,9 +90,20 @@ static inline short clip_sample(int32_t sample) {
 class DBINTOPL2 : public OPLCORE
 {
 public:
-	DBINTOPL2(uint32_t samplerate) : OPLCORE(samplerate) {}
+	DBINTOPL2(uint32_t samplerate) : OPLCORE(samplerate), initialized(false) {}
 
-	void Reset() { chip.Setup(rate); }
+	void Reset()
+	{
+		// The rate-dependent envelope tables are expensive to build and do not
+		// change between songs. Reuse them and reset only the chip state.
+		if (initialized)
+			chip.Reset();
+		else
+		{
+			chip.Setup(rate);
+			initialized = true;
+		}
+	}
 	void Write(uint32_t reg, uint8_t val) { chip.WriteReg(reg, val); }
 	void Generate(short* buf, int samples)
 	{
@@ -106,14 +117,26 @@ public:
 
 private:
 	DBOPL::Chip chip;
+	bool initialized;
 };
 
 class DBINTOPL3 : public OPLCORE
 {
 public:
-	DBINTOPL3(uint32_t samplerate) : OPLCORE(samplerate) {}
+	DBINTOPL3(uint32_t samplerate) : OPLCORE(samplerate), initialized(false) {}
 
-	void Reset() { chip.Setup(rate); }
+	void Reset()
+	{
+		// The rate-dependent envelope tables are expensive to build and do not
+		// change between songs. Reuse them and reset only the chip state.
+		if (initialized)
+			chip.Reset();
+		else
+		{
+			chip.Setup(rate);
+			initialized = true;
+		}
+	}
 	void Write(uint32_t reg, uint8_t val) { chip.WriteReg(reg, val); }
 	void Generate(short* buf, int samples)
 	{
@@ -136,7 +159,7 @@ public:
 
 private:
 	DBOPL::Chip chip;
+	bool initialized;
 };
 
 #endif
-

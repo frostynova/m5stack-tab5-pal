@@ -26,7 +26,7 @@ typedef struct {
     int y;
 } esp_bsp_sdl_touch_info_t;
 
-typedef void (*esp_bsp_sdl_pal_margin_draw_cb_t)(uint16_t *framebuffer,
+typedef bool (*esp_bsp_sdl_pal_margin_draw_cb_t)(uint16_t *framebuffer,
                                                   int panel_width,
                                                   int panel_height,
                                                   void *user_data);

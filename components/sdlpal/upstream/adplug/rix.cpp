@@ -94,7 +94,7 @@ CrixPlayer::~CrixPlayer()
 {
 #ifdef USE_RIX_MKF_FILE_BUFFER
     if (file_buffer)
-        delete[] file_buffer;
+        free(file_buffer);
 #else
   fclose(fp);
   if(rix_buf)
@@ -619,4 +619,3 @@ RELEASE_INLINE void CrixPlayer::music_ctrl()
   for(i=0;i<11;i++)
     switch_ad_bd(i);
 }
-

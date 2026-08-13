@@ -246,6 +246,7 @@ struct Chip {
 	void UpdateSynths();
 	//void Generate( Bit32u samples );
 	void Setup( Bit32u r );
+	void Reset();
 
 	Chip();
 };
@@ -261,4 +262,3 @@ struct Handler : public Adlib::Handler {
 
 //};		//Namespace
 #endif
-

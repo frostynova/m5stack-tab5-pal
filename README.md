@@ -17,7 +17,7 @@ the Windows 95 game that you own.
 - touch D-pad plus confirm, cancel, item/repeat, force and auto-battle buttons
 - Windows 95 resources loaded from a FAT32 SD card
 - save and load support in the same SD-card directory
-- ES8388 mono output at 44.1 kHz
+- ES8388 mono output at 22.05 kHz
 - Windows sound effects and RIX music through the DOSBox integer OPL core
 - battery voltage, estimated charge level and signed current in the left margin
 - touch volume controls in the right margin

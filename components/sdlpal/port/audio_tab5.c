@@ -15,11 +15,12 @@
 #include "freertos/semphr.h"
 #include "freertos/task.h"
 
-#define TAB5_AUDIO_SAMPLE_RATE 44100
+#define TAB5_AUDIO_SAMPLE_RATE 22050
 #define TAB5_AUDIO_CHANNELS 1
 #define TAB5_AUDIO_FRAMES 1024
 #define TAB5_AUDIO_BYTES (TAB5_AUDIO_FRAMES * TAB5_AUDIO_CHANNELS * sizeof(int16_t))
 #define TAB5_CODEC_VOLUME 55
+#define TAB5_AUDIO_TASK_PRIORITY 8
 
 static const char *TAG = "sdlpal_audio";
 extern esp_codec_dev_handle_t bsp_audio_codec_speaker_init(void);
@@ -111,9 +112,8 @@ static void tab5_audio_task(void *arg)
             vTaskDelay(pdMS_TO_TICKS(10));
         } else {
             consecutive_errors = 0;
-            /* The codec writer may return as soon as DMA accepts the block.
-             * Give the core's idle task a deterministic scheduling window. */
-            vTaskDelay(pdMS_TO_TICKS(1));
+            /* i2s_channel_write() blocks when the DMA queue is full, providing
+             * backpressure without adding an artificial gap between blocks. */
         }
     }
 
@@ -207,7 +207,8 @@ INT AUDIO_OpenDevice(VOID)
     }
 
     s_audio_running = true;
-    if (xTaskCreatePinnedToCore(tab5_audio_task, "sdlpal_audio", 12288, NULL, 5,
+    if (xTaskCreatePinnedToCore(tab5_audio_task, "sdlpal_audio", 12288, NULL,
+                                TAB5_AUDIO_TASK_PRIORITY,
                                 &s_audio_task, 1) != pdPASS) {
         ESP_LOGE(TAG, "could not create audio output task");
         s_audio_running = false;

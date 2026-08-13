@@ -54,8 +54,14 @@ static SDL_FingerID g_CurrentFinger = 0;
 static BOOL g_FingerDown = FALSE;
 static uint32_t *g_OverlayFrame = NULL;
 static uint32_t g_BatteryDetailsUntil = 0;
+static BOOL g_MarginsDrawn = FALSE;
+static TAB5POWERSTATUS g_LastMarginPower;
+static INT g_LastMarginVolume = -1;
+static BOOL g_LastMarginVolumeUpPressed = FALSE;
+static BOOL g_LastMarginVolumeDownPressed = FALSE;
+static BOOL g_LastMarginBatteryDetails = FALSE;
 
-static VOID PAL_Tab5DrawMargins(uint16_t *framebuffer, int panel_width,
+static bool PAL_Tab5DrawMargins(uint16_t *framebuffer, int panel_width,
                                 int panel_height, void *user_data);
 
 static VOID
@@ -840,7 +846,8 @@ PAL_Tab5PhysicalDrawBattery(
                                29, 327, 12, 2, gray);
    }
 
-   if (status.valid && SDL_TICKS_PASSED(g_BatteryDetailsUntil, SDL_GetTicks()) == SDL_FALSE)
+   if (status.valid &&
+       !SDL_TICKS_PASSED(SDL_GetTicks(), g_BatteryDetailsUntil))
    {
       snprintf(text, sizeof(text), "%.1fV", status.voltage);
       PAL_Tab5PhysicalDrawCenteredText(framebuffer, panel_width, panel_height,
@@ -887,7 +894,7 @@ PAL_Tab5PhysicalDrawVolume(
                             down_pressed ? pressed : white);
 }
 
-static VOID
+static bool
 PAL_Tab5DrawMargins(
    uint16_t *framebuffer,
    int panel_width,
@@ -899,19 +906,50 @@ PAL_Tab5DrawMargins(
    if (framebuffer == NULL || panel_width != PANEL_WIDTH ||
        panel_height != PANEL_HEIGHT)
    {
-      return;
+      return false;
    }
 
    PAL_Tab5PowerUpdate();
+
+   const TAB5POWERSTATUS status = PAL_Tab5PowerGetStatus();
+   const INT volume = AUDIO_Tab5GetVolume();
+   const BOOL volume_up_pressed =
+      g_FingerDown && g_CurrentArea == kTab5TouchVolumeUp;
+   const BOOL volume_down_pressed =
+      g_FingerDown && g_CurrentArea == kTab5TouchVolumeDown;
+   const BOOL battery_details =
+      !SDL_TICKS_PASSED(SDL_GetTicks(), g_BatteryDetailsUntil);
+   const BOOL power_changed =
+      status.valid != g_LastMarginPower.valid ||
+      status.voltage != g_LastMarginPower.voltage ||
+      status.current != g_LastMarginPower.current ||
+      status.percent != g_LastMarginPower.percent ||
+      status.state != g_LastMarginPower.state;
+
+   if (g_MarginsDrawn && !power_changed &&
+       volume == g_LastMarginVolume &&
+       volume_up_pressed == g_LastMarginVolumeUpPressed &&
+       volume_down_pressed == g_LastMarginVolumeDownPressed &&
+       battery_details == g_LastMarginBatteryDetails)
+   {
+      return false;
+   }
 
    PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
                             0, 0, PHYSICAL_MARGIN, PHYSICAL_HEIGHT, 0x0000);
    PAL_Tab5PhysicalFillRect(framebuffer, panel_width, panel_height,
                             PHYSICAL_WIDTH - PHYSICAL_MARGIN, 0,
                             PHYSICAL_MARGIN, PHYSICAL_HEIGHT, 0x0000);
-   PAL_Tab5PhysicalDrawBattery(framebuffer, panel_width, panel_height,
-                               PAL_Tab5PowerGetStatus());
+   PAL_Tab5PhysicalDrawBattery(framebuffer, panel_width, panel_height, status);
    PAL_Tab5PhysicalDrawVolume(framebuffer, panel_width, panel_height);
+
+   g_MarginsDrawn = TRUE;
+   g_LastMarginPower = status;
+   g_LastMarginVolume = volume;
+   g_LastMarginVolumeUpPressed = volume_up_pressed;
+   g_LastMarginVolumeDownPressed = volume_down_pressed;
+   g_LastMarginBatteryDetails = battery_details;
+   return true;
 }
 
 const void *

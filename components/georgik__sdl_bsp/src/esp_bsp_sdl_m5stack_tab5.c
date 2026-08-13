@@ -205,6 +205,11 @@ esp_err_t tab5_sdl_init(esp_bsp_sdl_display_config_t *config,
         .vendor_config = (void *)&vendor_config,
     };
     ESP_RETURN_ON_ERROR(esp_lcd_new_panel_st7121(panel_io, &panel_config, &panel), TAG, "ST7121 panel create failed");
+    /* ESP-IDF 6 requires enabling DMA2D explicitly after creating a DPI
+     * panel. Without it, each 720x1280 RGB565 update is copied too slowly to
+     * sustain SDLPal's 25 FPS battle path. */
+    ESP_RETURN_ON_ERROR(esp_lcd_dpi_panel_enable_dma2d(panel), TAG,
+                        "ST7121 DMA2D enable failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_reset(panel), TAG, "ST7121 reset failed");
     ESP_RETURN_ON_ERROR(esp_lcd_panel_init(panel), TAG, "ST7121 init failed");
 
@@ -336,26 +341,27 @@ esp_err_t tab5_sdl_present_pal_frame(const void *argb8888_pixels)
     if (error != ESP_OK) {
         return error;
     }
-
     if (pal_margin_draw_cb != NULL) {
-        pal_margin_draw_cb(pal_output, BSP_LCD_H_RES, BSP_LCD_V_RES,
-                           pal_margin_draw_user_data);
+        const bool margins_changed = pal_margin_draw_cb(
+            pal_output, BSP_LCD_H_RES, BSP_LCD_V_RES,
+            pal_margin_draw_user_data);
 
-        const size_t margin_size =
-            (size_t)PAL_OUTPUT_Y * BSP_LCD_H_RES * sizeof(*pal_output);
-        error = esp_cache_msync(pal_output, margin_size,
-                                ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-        if (error != ESP_OK) {
-            return error;
-        }
-        error = esp_cache_msync(
-            pal_output + (size_t)(PAL_OUTPUT_Y + PAL_OUTPUT_HEIGHT) * BSP_LCD_H_RES,
-            margin_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
-        if (error != ESP_OK) {
-            return error;
+        if (margins_changed) {
+            const size_t margin_size =
+                (size_t)PAL_OUTPUT_Y * BSP_LCD_H_RES * sizeof(*pal_output);
+            error = esp_cache_msync(pal_output, margin_size,
+                                    ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+            if (error != ESP_OK) {
+                return error;
+            }
+            error = esp_cache_msync(
+                pal_output + (size_t)(PAL_OUTPUT_Y + PAL_OUTPUT_HEIGHT) * BSP_LCD_H_RES,
+                margin_size, ESP_CACHE_MSYNC_FLAG_DIR_C2M);
+            if (error != ESP_OK) {
+                return error;
+            }
         }
     }
-
     error = esp_lcd_panel_draw_bitmap(panel, 0, 0,
                                       BSP_LCD_H_RES, BSP_LCD_V_RES,
                                       pal_output);
