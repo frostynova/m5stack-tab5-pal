@@ -13,6 +13,7 @@
 
 #define SCREEN_WIDTH  720
 #define SCREEN_HEIGHT 1280
+#define SDL_THREAD_STACK_SIZE (1024 * 1024)
 
 static const char *TAG = "sdlpal_tab5";
 static TaskHandle_t sdl_task_handle;
@@ -241,9 +242,10 @@ void app_main(void)
     pthread_t thread;
     pthread_attr_t attributes;
     pthread_attr_init(&attributes);
-    /* A few resource/render paths make short, deep stack excursions that the
-     * periodic high-water monitor cannot sample. Keep the proven 128 KiB
-     * margin, but place it in PSRAM so audio DMA retains internal memory. */
+    /* Status and ending screens can place two 64 KiB decode buffers on the
+     * stack at once. Keep enough headroom for their caller chain and pthread
+     * bookkeeping, and place the stack in PSRAM so audio DMA retains internal
+     * memory. */
     esp_pthread_cfg_t pthread_cfg = esp_pthread_get_default_config();
     pthread_cfg.stack_alloc_caps = MALLOC_CAP_SPIRAM | MALLOC_CAP_8BIT;
     pthread_cfg.pin_to_core = 0;
@@ -254,7 +256,7 @@ void app_main(void)
         pthread_attr_destroy(&attributes);
         return;
     }
-    pthread_attr_setstacksize(&attributes, 131072);
+    pthread_attr_setstacksize(&attributes, SDL_THREAD_STACK_SIZE);
 
     const int error = pthread_create(&thread, &attributes, sdl_task, NULL);
     pthread_attr_destroy(&attributes);

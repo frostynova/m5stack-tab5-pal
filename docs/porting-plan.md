@@ -43,7 +43,8 @@
 - Windows sound effects and RIX/OPL music are enabled.
 - OPL synthesis uses the DOSBox integer core at the device sample rate.
 - Audio runs on core 1 with internal DMA/mixing buffers.
-- SDL's proven 128 KiB thread stack is allocated in PSRAM.
+- SDL's 1 MiB thread stack is allocated in PSRAM, leaving ample headroom for the
+  status and ending paths that place two 64 KiB decode buffers on the stack.
 - The tested firmware loads an existing save and runs without the previous
   early-game watchdog/reset failure.
 
