@@ -63,11 +63,101 @@ typedef struct tagSOUNDPLAYER
 	AUDIOPLAYER_COMMONS;
 
 	FILE               *mkf;		/* File pointer to the MKF file */
+	UINT               *chunk_offsets;	/* Cached MKF index; avoids SD reads for every lookup */
+	INT                 chunk_count;
 	SoundLoader         LoadSound;	/* The function pointer for load WAVE/VOC data */
 	WAVEDATA            soundlist;
 	int                 cursounds;
 	int					lastSFX;
 } SOUNDPLAYER, *LPSOUNDPLAYER;
+
+#define SOUND_MKF_READ_RETRIES 3
+
+static BOOL
+SOUND_ReadExactAt(
+	FILE       *fp,
+	long        offset,
+	void       *buffer,
+	size_t      length
+)
+{
+	for (int attempt = 0; attempt < SOUND_MKF_READ_RETRIES; attempt++)
+	{
+		clearerr(fp);
+		if (fseek(fp, offset, SEEK_SET) == 0 &&
+			fread(buffer, 1, length, fp) == length)
+		{
+			return TRUE;
+		}
+
+		clearerr(fp);
+		SDL_Delay(2);
+	}
+
+	return FALSE;
+}
+
+static BOOL
+SOUND_LoadMKFIndex(
+	LPSOUNDPLAYER player
+)
+{
+	UINT first_offset;
+	long file_size;
+
+	if (!SOUND_ReadExactAt(player->mkf, 0, &first_offset, sizeof(first_offset)))
+	{
+		return FALSE;
+	}
+
+	first_offset = SDL_SwapLE32(first_offset);
+	if (first_offset < sizeof(UINT) * 2 ||
+		first_offset % sizeof(UINT) != 0)
+	{
+		return FALSE;
+	}
+
+	player->chunk_count = (INT)(first_offset / sizeof(UINT)) - 1;
+	player->chunk_offsets = (UINT *)malloc(first_offset);
+	if (player->chunk_offsets == NULL)
+	{
+		return FALSE;
+	}
+
+	if (!SOUND_ReadExactAt(player->mkf, 0, player->chunk_offsets, first_offset))
+	{
+		free(player->chunk_offsets);
+		player->chunk_offsets = NULL;
+		player->chunk_count = 0;
+		return FALSE;
+	}
+
+	for (int i = 0; i <= player->chunk_count; i++)
+	{
+		player->chunk_offsets[i] = SDL_SwapLE32(player->chunk_offsets[i]);
+		if ((i == 0 && player->chunk_offsets[i] != first_offset) ||
+			(i > 0 && player->chunk_offsets[i] < player->chunk_offsets[i - 1]))
+		{
+			free(player->chunk_offsets);
+			player->chunk_offsets = NULL;
+			player->chunk_count = 0;
+			return FALSE;
+		}
+	}
+
+	clearerr(player->mkf);
+	if (fseek(player->mkf, 0, SEEK_END) != 0 ||
+		(file_size = ftell(player->mkf)) < 0 ||
+		player->chunk_offsets[player->chunk_count] > (UINT)file_size)
+	{
+		free(player->chunk_offsets);
+		player->chunk_offsets = NULL;
+		player->chunk_count = 0;
+		return FALSE;
+	}
+
+	return TRUE;
+}
 
 static const void *
 SOUND_LoadWAVEData(
@@ -769,12 +859,16 @@ SOUND_Play(
 	if (player->lastSFX == iSoundNum)
 		return FALSE;
 
-	player->lastSFX = iSoundNum;
-
 	//
 	// Get the length of the sound file.
 	//
-	len = PAL_MKFGetChunkSize(iSoundNum, player->mkf);
+	if (iSoundNum < 0 || iSoundNum >= player->chunk_count)
+	{
+		return FALSE;
+	}
+
+	len = player->chunk_offsets[iSoundNum + 1] -
+		player->chunk_offsets[iSoundNum];
 	if (len <= 0)
 	{
 		return FALSE;
@@ -789,7 +883,12 @@ SOUND_Play(
 	//
 	// Read the sound file from the MKF archive.
 	//
-	PAL_MKFReadChunk(buf, len, iSoundNum, player->mkf);
+	if (!SOUND_ReadExactAt(player->mkf, player->chunk_offsets[iSoundNum],
+		buf, len))
+	{
+		free(buf);
+		return FALSE;
+	}
 
 	snddata = player->LoadSound(buf, len, &wavespec);
 	if (snddata == NULL)
@@ -841,6 +940,7 @@ SOUND_Play(
 	cursnd->spec = wavespec;
 	cursnd->ResampleMix = mixer;
 	player->cursounds++;
+	player->lastSFX = iSoundNum;
 
 	AUDIO_Unlock();
 
@@ -884,6 +984,7 @@ SOUND_Shutdown(
 			free(old);
 		}
 		if (player->mkf) fclose(player->mkf);
+		if (player->chunk_offsets) free(player->chunk_offsets);
 	}
 }
 
@@ -976,13 +1077,24 @@ SOUND_Init(
 		if (mkf)
 		{
 			LPSOUNDPLAYER player = (LPSOUNDPLAYER)malloc(sizeof(SOUNDPLAYER));
-			memset(&player->soundlist, 0, sizeof(WAVEDATA));
+			if (player == NULL)
+			{
+				fclose(mkf);
+				continue;
+			}
+			memset(player, 0, sizeof(SOUNDPLAYER));
 			player->Play = SOUND_Play;
 			player->FillBuffer = SOUND_FillBuffer;
 			player->Shutdown = SOUND_Shutdown;
 
 			player->LoadSound = func[i];
 			player->mkf = mkf;
+			if (!SOUND_LoadMKFIndex(player))
+			{
+				fclose(mkf);
+				free(player);
+				continue;
+			}
 			player->soundlist.resampler[0] = resampler_create();
 			player->soundlist.resampler[1] = resampler_create();
 			player->cursounds = 0;
